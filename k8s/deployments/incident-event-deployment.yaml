@@ -1,0 +1,93 @@
+# V-Factory Incident Event Service Deployment
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: incident-event
+  namespace: v-factory
+  labels:
+    app: incident-event
+    component: backend
+spec:
+  replicas: 2
+  selector:
+    matchLabels:
+      app: incident-event
+  template:
+    metadata:
+      labels:
+        app: incident-event
+        component: backend
+    spec:
+      containers:
+      - name: incident-event
+        image: v-factory-incident-event:latest
+        imagePullPolicy: IfNotPresent
+        ports:
+        - containerPort: 8000
+          name: http
+        env:
+        - name: DEBUG
+          valueFrom:
+            configMapKeyRef:
+              name: v-factory-config
+              key: DEBUG
+        - name: LOG_LEVEL
+          valueFrom:
+            configMapKeyRef:
+              name: v-factory-config
+              key: LOG_LEVEL
+        - name: DATABASE_URL
+          value: "postgresql+asyncpg://$(POSTGRES_USER):$(POSTGRES_PASSWORD)@postgres-service:5432/$(POSTGRES_DB)"
+        - name: POSTGRES_USER
+          valueFrom:
+            configMapKeyRef:
+              name: v-factory-config
+              key: POSTGRES_USER
+        - name: POSTGRES_PASSWORD
+          valueFrom:
+            secretKeyRef:
+              name: v-factory-secrets
+              key: POSTGRES_PASSWORD
+        - name: POSTGRES_DB
+          valueFrom:
+            configMapKeyRef:
+              name: v-factory-config
+              key: POSTGRES_DB
+        - name: REDIS_URL
+          valueFrom:
+            configMapKeyRef:
+              name: v-factory-config
+              key: REDIS_URL
+        - name: FACTORY_CORE_URL
+          valueFrom:
+            configMapKeyRef:
+              name: v-factory-config
+              key: FACTORY_CORE_URL
+        - name: CORS_ORIGINS
+          valueFrom:
+            configMapKeyRef:
+              name: v-factory-config
+              key: CORS_ORIGINS
+        livenessProbe:
+          httpGet:
+            path: /health
+            port: 8000
+          initialDelaySeconds: 40
+          periodSeconds: 30
+          timeoutSeconds: 10
+          failureThreshold: 3
+        readinessProbe:
+          httpGet:
+            path: /health
+            port: 8000
+          initialDelaySeconds: 20
+          periodSeconds: 10
+          timeoutSeconds: 5
+          failureThreshold: 3
+        resources:
+          requests:
+            memory: "256Mi"
+            cpu: "250m"
+          limits:
+            memory: "512Mi"
+            cpu: "500m"

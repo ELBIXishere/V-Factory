@@ -1,0 +1,181 @@
+# V-Factory 개발 환경 Docker Compose 설정
+# 실행: docker compose up --build
+
+services:
+  # ============================================
+  # 인프라 서비스
+  # ============================================
+  
+  postgres:
+    image: postgres:16-alpine
+    container_name: vfactory-postgres
+    environment:
+      POSTGRES_USER: ${POSTGRES_USER:-vfactory}
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:-vfactory_dev_password}
+      POSTGRES_DB: ${POSTGRES_DB:-vfactory_db}
+    ports:
+      - "5555:5432"
+    volumes:
+      - postgres_data:/var/lib/postgresql/data
+      - ./docker/dev/init-db.sql:/docker-entrypoint-initdb.d/init.sql:ro
+    networks:
+      - vfactory-network
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U ${POSTGRES_USER:-vfactory} -d ${POSTGRES_DB:-vfactory_db}"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+    restart: unless-stopped
+
+  redis:
+    image: redis:7-alpine
+    container_name: vfactory-redis
+    ports:
+      - "6379:6379"
+    volumes:
+      - redis_data:/data
+    networks:
+      - vfactory-network
+    healthcheck:
+      test: ["CMD", "redis-cli", "ping"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+    restart: unless-stopped
+    command: redis-server --appendonly yes
+
+  # ============================================
+  # Frontend 서비스
+  # ============================================
+  
+  frontend:
+    build:
+      context: .
+      dockerfile: docker/dev/frontend.Dockerfile
+    container_name: vfactory-frontend
+    ports:
+      - "3100:3000"
+    volumes:
+      # 소스 코드 마운트 (Hot Reload)
+      - ./frontend:/app
+      # node_modules는 컨테이너 내부에서 관리 (성능 최적화)
+      - /app/node_modules
+      - /app/.next
+    environment:
+      - NODE_ENV=development
+      - NEXT_PUBLIC_API_URL=http://localhost:8001
+      - NEXT_PUBLIC_INCIDENT_API_URL=http://localhost:8002
+      - NEXT_PUBLIC_ASSET_API_URL=http://localhost:8003
+      - WATCHPACK_POLLING=true
+    networks:
+      - vfactory-network
+    depends_on:
+      - factory-core
+      - incident-event
+      - asset-management
+    restart: unless-stopped
+
+  # ============================================
+  # Backend MSA 서비스
+  # ============================================
+  
+  factory-core:
+    build:
+      context: .
+      dockerfile: docker/dev/backend.Dockerfile
+      args:
+        SERVICE_NAME: factory-core
+    container_name: vfactory-factory-core
+    ports:
+      - "8001:8000"
+    volumes:
+      # 소스 코드 마운트 (Hot Reload)
+      - ./services/factory-core:/app
+    environment:
+      - DEBUG=true
+      - LOG_LEVEL=debug
+      - DATABASE_URL=postgresql+asyncpg://${POSTGRES_USER:-vfactory}:${POSTGRES_PASSWORD:-vfactory_dev_password}@postgres:5432/${POSTGRES_DB:-vfactory_db}
+      - REDIS_URL=redis://redis:6379/0
+      - CORS_ORIGINS=["http://localhost:3100","http://frontend:3000"]
+    networks:
+      - vfactory-network
+    depends_on:
+      postgres:
+        condition: service_healthy
+      redis:
+        condition: service_healthy
+    restart: unless-stopped
+
+  incident-event:
+    build:
+      context: .
+      dockerfile: docker/dev/backend.Dockerfile
+      args:
+        SERVICE_NAME: incident-event
+    container_name: vfactory-incident-event
+    ports:
+      - "8002:8000"
+    volumes:
+      - ./services/incident-event:/app
+    environment:
+      - DEBUG=true
+      - LOG_LEVEL=debug
+      - DATABASE_URL=postgresql+asyncpg://${POSTGRES_USER:-vfactory}:${POSTGRES_PASSWORD:-vfactory_dev_password}@postgres:5432/${POSTGRES_DB:-vfactory_db}
+      - REDIS_URL=redis://redis:6379/0
+      - CORS_ORIGINS=["http://localhost:3100","http://frontend:3000"]
+      - FACTORY_CORE_URL=http://factory-core:8000
+    networks:
+      - vfactory-network
+    depends_on:
+      postgres:
+        condition: service_healthy
+      redis:
+        condition: service_healthy
+    restart: unless-stopped
+
+  asset-management:
+    build:
+      context: .
+      dockerfile: docker/dev/backend.Dockerfile
+      args:
+        SERVICE_NAME: asset-management
+    container_name: vfactory-asset-management
+    ports:
+      - "8003:8000"
+    volumes:
+      - ./services/asset-management:/app
+      - assets_data:/app/uploads
+    environment:
+      - DEBUG=true
+      - LOG_LEVEL=debug
+      - DATABASE_URL=postgresql+asyncpg://${POSTGRES_USER:-vfactory}:${POSTGRES_PASSWORD:-vfactory_dev_password}@postgres:5432/${POSTGRES_DB:-vfactory_db}
+      - REDIS_URL=redis://redis:6379/0
+      - CORS_ORIGINS=["http://localhost:3100","http://frontend:3000"]
+      - UPLOAD_DIR=/app/uploads
+    networks:
+      - vfactory-network
+    depends_on:
+      postgres:
+        condition: service_healthy
+      redis:
+        condition: service_healthy
+    restart: unless-stopped
+
+# ============================================
+# 네트워크 설정
+# ============================================
+networks:
+  vfactory-network:
+    driver: bridge
+    name: vfactory-network
+
+# ============================================
+# 볼륨 설정 (데이터 영속성)
+# ============================================
+volumes:
+  postgres_data:
+    name: vfactory-postgres-data
+  redis_data:
+    name: vfactory-redis-data
+  assets_data:
+    name: vfactory-assets-data

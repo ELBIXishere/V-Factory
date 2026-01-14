@@ -1,0 +1,5 @@
+# WGSL 셰이더 파일 디렉토리
+# Phase 4, 5, 6에서 WebGPU 셰이더가 추가됩니다.
+# - conveyor.wgsl: 컨베이어 벨트 Compute Shader
+# - alert-effect.wgsl: 사고 알림 Post-Processing
+# - outline.wgsl: 피해자 하이라이트 Outline Shader

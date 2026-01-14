@@ -1,0 +1,152 @@
+---
+description: V-Factory 프로젝트 개발 규칙 및 가이드라인
+globs: ["**/*"]
+alwaysApply: true
+---
+
+# V-Factory 프로젝트 규칙
+
+## 프로젝트 개요
+V-Factory는 WebGPU 기반 3D 렌더링 기술을 활용한 가상 공장 안전 모니터링 시뮬레이터입니다.
+CCTV 멀티뷰 시스템과 사고 시각 이펙트를 통해 관제 경험을 고도화하는 것이 핵심 목표입니다.
+
+---
+
+## 기술 스택
+
+### Frontend
+- **Framework:** Next.js 14 (App Router)
+- **3D Engine:** Three.js (WebGPU Renderer)
+- **Styling:** ShadCN, TailwindCSS
+- **Shader:** WGSL (WebGPU Shading Language)
+
+### Backend
+- **Framework:** FastAPI (Python)
+- **Database:** PostgreSQL
+- **Cache/Message Broker:** Redis (Pub/Sub, SSE)
+
+### Architecture
+- MSA (Micro Service Architecture) 기반 설계
+- Docker 컨테이너화
+- Kubernetes 오케스트레이션
+
+---
+
+## 코드 작성 규칙
+
+### 일반 규칙
+- 모든 코드 주석은 한글로 작성
+- 변수명은 명확하고 의미가 드러나도록 작성
+- 에러 발생 가능성이 있는 부분은 사전 예외 처리
+
+### Frontend (Next.js)
+- App Router 패턴 사용 (`app/` 디렉토리 구조)
+- 클라이언트 컴포넌트는 `'use client'` 지시어 명시
+- ShadCN 컴포넌트를 우선 활용하여 일관된 UI 유지
+- TailwindCSS 클래스 사용, 인라인 스타일 지양
+
+### WebGPU / Three.js
+- 각 CCTV 뷰는 별도의 `GPUTexture`로 렌더링
+- `CommandEncoder`를 효율적으로 사용하여 Draw Call 최적화
+- 컨베이어 벨트 물리 연산은 Compute Shader에서 처리
+- 물체 위치 공식: `newPosition = oldPosition + velocity * deltaTime`
+- `Storage Buffer`를 통해 GPU 메모리 내에서 직접 업데이트
+
+### WGSL Shader
+- 사고 이펙트는 Post-Processing Shader로 구현
+- Glitch Effect: `sin()` 함수와 `time` 파라미터 조합으로 UV 왜곡
+- Red Overlay: `vec4(0.3, 0.0, 0.0, 0.5)` 가산 블렌딩
+- Outline Rendering: Backface Culling 역이용 또는 Sobel Filter 활용
+
+### Backend (FastAPI)
+- 모든 API 엔드포인트는 `async def`로 비동기 처리
+- Pydantic 모델을 사용한 요청/응답 유효성 검사
+- 실시간 이벤트는 Redis Pub/Sub + SSE 방식 사용
+
+---
+
+## MSA 서비스 구조
+
+### 서비스 분리
+1. **Simulation Gateway (Next.js):** 클라이언트 엔트리 포인트, WebGPU 렌더링 엔진
+2. **Factory Core Service (FastAPI):** 공장 설비 배치 및 상태 관리
+3. **Incident Event Service (FastAPI):** 사고 트리거 및 실시간 알림 전송
+4. **Asset Management Service (FastAPI):** 3D 에셋 메타데이터 및 텍스처 관리
+
+### 서비스 간 통신
+- REST API: 동기적 데이터 요청
+- Redis Pub/Sub: 실시간 이벤트 전파
+- SSE: 클라이언트로의 실시간 푸시
+
+---
+
+## 데이터베이스 스키마
+
+### PostgreSQL Tables
+- **factories:** id(UUID), name(String), layout_json(JSONB)
+- **incidents:** id(UUID), factory_id(UUID), timestamp(DateTime), type(Enum), severity(Int)
+- **cctv_configs:** id(UUID), factory_id(UUID), position(Vector3), fov(Float), name(String)
+
+---
+
+## 사고 처리 로직
+
+### 사고 감지 및 전파 흐름
+1. **Trigger:** 사용자 조작 또는 시나리오 스크립트로 Incident Service에 POST 요청
+2. **Validation:** R-Tree 공간 인덱스로 가장 가까운 CCTV 조회
+3. **Broadcast:** Redis 채널로 사고 데이터 발행
+4. **Client Reaction:** 해당 CCTV의 `is_accident` 플래그 활성화 → 셰이더 이펙트 적용
+
+---
+
+## 폴더 구조 가이드
+
+```
+V-Factory/
+├── docs/                    # 문서 (PRD, TRD)
+├── frontend/                # Next.js 프론트엔드
+│   ├── app/                 # App Router 페이지
+│   ├── components/          # React 컴포넌트
+│   ├── lib/                 # 유틸리티 및 헬퍼
+│   └── shaders/             # WGSL 셰이더 파일
+├── services/                # FastAPI 마이크로서비스
+│   ├── factory-core/        # 공장 설비 서비스
+│   ├── incident-event/      # 사고 이벤트 서비스
+│   └── asset-management/    # 에셋 관리 서비스
+├── docker/                  # Docker 설정
+└── k8s/                     # Kubernetes 매니페스트
+```
+
+---
+
+## 성능 최적화 가이드
+
+### WebGPU 렌더링
+- 다수의 카메라 뷰 렌더링 시 각 뷰마다 독립적인 render pass 생성
+- 메인 캔버스에서 `passEncoder`를 순차 호출하여 단일 프레임에 출력
+- 수천 개의 부품 이동은 Compute Shader에서 처리하여 프레임 드랍 방지
+
+### 백엔드
+- 비동기 처리로 시뮬레이션 데이터 폭주 시 낮은 대기 시간 유지
+- Redis 캐싱으로 반복 조회 최적화
+
+---
+
+## Git 커밋 메시지 규칙
+
+```
+feat: 새로운 기능 추가
+fix: 버그 수정
+docs: 문서 수정
+style: 코드 포맷팅 (기능 변경 없음)
+refactor: 코드 리팩토링
+perf: 성능 개선
+test: 테스트 추가
+chore: 빌드, 설정 파일 수정
+```
+
+---
+
+## 참고 문서
+- [PRD.md](docs/PRD.md): 제품 요구사항 정의서
+- [TRD.md](docs/TRD.md): 기술 요구사항 정의서

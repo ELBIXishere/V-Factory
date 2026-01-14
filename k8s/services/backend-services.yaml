@@ -1,0 +1,62 @@
+# V-Factory Backend Services
+# Factory Core, Incident Event, Asset Management 서비스
+
+---
+# Factory Core Service
+apiVersion: v1
+kind: Service
+metadata:
+  name: factory-core-service
+  namespace: v-factory
+  labels:
+    app: factory-core
+    component: backend
+spec:
+  type: ClusterIP
+  ports:
+  - port: 8000
+    targetPort: 8000
+    protocol: TCP
+    name: http
+  selector:
+    app: factory-core
+
+---
+# Incident Event Service
+apiVersion: v1
+kind: Service
+metadata:
+  name: incident-event-service
+  namespace: v-factory
+  labels:
+    app: incident-event
+    component: backend
+spec:
+  type: ClusterIP
+  ports:
+  - port: 8000
+    targetPort: 8000
+    protocol: TCP
+    name: http
+  selector:
+    app: incident-event
+
+---
+# Asset Management Service
+apiVersion: v1
+kind: Service
+metadata:
+  name: asset-management-service
+  namespace: v-factory
+  labels:
+    app: asset-management
+    component: backend
+spec:
+  type: ClusterIP
+  ports:
+  - port: 8000
+    targetPort: 8000
+    protocol: TCP
+    name: http
+  selector:
+    app: asset-management

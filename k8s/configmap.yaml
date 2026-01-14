@@ -1,0 +1,36 @@
+# V-Factory Kubernetes ConfigMap
+# 환경별 설정값 관리
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: v-factory-config
+  namespace: v-factory
+  labels:
+    app: v-factory
+data:
+  # PostgreSQL 설정
+  POSTGRES_USER: "vfactory"
+  POSTGRES_DB: "vfactory_db"
+  
+  # Redis 설정
+  REDIS_URL: "redis://redis-service:6379/0"
+  
+  # Backend 공통 설정
+  DEBUG: "false"
+  LOG_LEVEL: "info"
+  
+  # CORS 설정 (JSON 배열 형식)
+  CORS_ORIGINS: '["http://localhost:3000","https://yourdomain.com"]'
+  
+  # Factory Core Service URL (Incident Event Service에서 사용)
+  FACTORY_CORE_URL: "http://factory-core-service:8000"
+  
+  # Asset Management Service 설정
+  UPLOAD_DIR: "/app/uploads"
+  MAX_FILE_SIZE: "104857600"  # 100MB in bytes
+  
+  # Frontend 환경변수 (빌드 시점에 주입되지만 런타임 오버라이드용)
+  # 클러스터 내부 서비스 이름 사용 (Pod 간 통신)
+  NEXT_PUBLIC_API_URL: "http://factory-core-service.v-factory.svc.cluster.local:8000"
+  NEXT_PUBLIC_INCIDENT_API_URL: "http://incident-event-service.v-factory.svc.cluster.local:8000"
+  NEXT_PUBLIC_ASSET_API_URL: "http://asset-management-service.v-factory.svc.cluster.local:8000"

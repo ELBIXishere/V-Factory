@@ -1,0 +1,114 @@
+# V-Factory CD 파이프라인
+# Docker 이미지 빌드 및 Docker Hub 푸시
+
+name: CD
+
+on:
+  push:
+    tags:
+      - 'v*.*.*'  # v1.0.0 형식의 태그
+  workflow_dispatch:
+    inputs:
+      tag:
+        description: 'Docker 이미지 태그 (예: v1.0.0)'
+        required: true
+        type: string
+
+env:
+  DOCKER_HUB_USERNAME: ${{ secrets.DOCKER_HUB_USERNAME }}
+
+jobs:
+  build-and-push:
+    name: Build and Push Docker Images
+    runs-on: ubuntu-latest
+    if: github.event_name != 'workflow_dispatch' || github.event.inputs.tag != ''
+
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+
+      - name: Set up Docker Buildx
+        uses: docker/setup-buildx-action@v3
+
+      - name: Login to Docker Hub
+        uses: docker/login-action@v3
+        with:
+          username: ${{ secrets.DOCKER_HUB_USERNAME }}
+          password: ${{ secrets.DOCKER_HUB_PASSWORD }}
+
+      - name: Extract tag from ref
+        id: tag
+        run: |
+          if [ "${{ github.event_name }}" = "workflow_dispatch" ]; then
+            echo "tag=${{ github.event.inputs.tag }}" >> $GITHUB_OUTPUT
+          else
+            # 태그 추출 (예: refs/tags/v1.0.0 -> v1.0.0)
+            TAG=${GITHUB_REF#refs/tags/}
+            echo "tag=${TAG}" >> $GITHUB_OUTPUT
+          fi
+
+      - name: Build and push Frontend image
+        uses: docker/build-push-action@v5
+        with:
+          context: .
+          file: ./docker/prod/frontend.Dockerfile
+          push: true
+          tags: |
+            ${{ secrets.DOCKER_HUB_USERNAME }}/v-factory-frontend:${{ steps.tag.outputs.tag }}
+            ${{ secrets.DOCKER_HUB_USERNAME }}/v-factory-frontend:latest
+          cache-from: type=gha
+          cache-to: type=gha,mode=max
+
+      - name: Build and push Factory Core image
+        uses: docker/build-push-action@v5
+        with:
+          context: .
+          file: ./docker/prod/backend.Dockerfile
+          build-args: |
+            SERVICE_NAME=factory-core
+          push: true
+          tags: |
+            ${{ secrets.DOCKER_HUB_USERNAME }}/v-factory-factory-core:${{ steps.tag.outputs.tag }}
+            ${{ secrets.DOCKER_HUB_USERNAME }}/v-factory-factory-core:latest
+          cache-from: type=gha
+          cache-to: type=gha,mode=max
+
+      - name: Build and push Incident Event image
+        uses: docker/build-push-action@v5
+        with:
+          context: .
+          file: ./docker/prod/backend.Dockerfile
+          build-args: |
+            SERVICE_NAME=incident-event
+          push: true
+          tags: |
+            ${{ secrets.DOCKER_HUB_USERNAME }}/v-factory-incident-event:${{ steps.tag.outputs.tag }}
+            ${{ secrets.DOCKER_HUB_USERNAME }}/v-factory-incident-event:latest
+          cache-from: type=gha
+          cache-to: type=gha,mode=max
+
+      - name: Build and push Asset Management image
+        uses: docker/build-push-action@v5
+        with:
+          context: .
+          file: ./docker/prod/backend.Dockerfile
+          build-args: |
+            SERVICE_NAME=asset-management
+          push: true
+          tags: |
+            ${{ secrets.DOCKER_HUB_USERNAME }}/v-factory-asset-management:${{ steps.tag.outputs.tag }}
+            ${{ secrets.DOCKER_HUB_USERNAME }}/v-factory-asset-management:latest
+          cache-from: type=gha
+          cache-to: type=gha,mode=max
+
+      - name: Summary
+        run: |
+          echo "## 🚀 배포 완료" >> $GITHUB_STEP_SUMMARY
+          echo "" >> $GITHUB_STEP_SUMMARY
+          echo "**태그:** ${{ steps.tag.outputs.tag }}" >> $GITHUB_STEP_SUMMARY
+          echo "" >> $GITHUB_STEP_SUMMARY
+          echo "### 푸시된 이미지:" >> $GITHUB_STEP_SUMMARY
+          echo "- \`${{ secrets.DOCKER_HUB_USERNAME }}/v-factory-frontend:${{ steps.tag.outputs.tag }}\`" >> $GITHUB_STEP_SUMMARY
+          echo "- \`${{ secrets.DOCKER_HUB_USERNAME }}/v-factory-factory-core:${{ steps.tag.outputs.tag }}\`" >> $GITHUB_STEP_SUMMARY
+          echo "- \`${{ secrets.DOCKER_HUB_USERNAME }}/v-factory-incident-event:${{ steps.tag.outputs.tag }}\`" >> $GITHUB_STEP_SUMMARY
+          echo "- \`${{ secrets.DOCKER_HUB_USERNAME }}/v-factory-asset-management:${{ steps.tag.outputs.tag }}\`" >> $GITHUB_STEP_SUMMARY

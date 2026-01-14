@@ -1,0 +1,116 @@
+# V-Factory Asset Management Service Deployment
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: asset-management
+  namespace: v-factory
+  labels:
+    app: asset-management
+    component: backend
+spec:
+  replicas: 2
+  selector:
+    matchLabels:
+      app: asset-management
+  template:
+    metadata:
+      labels:
+        app: asset-management
+        component: backend
+    spec:
+      containers:
+      - name: asset-management
+        image: v-factory-asset-management:latest
+        imagePullPolicy: IfNotPresent
+        ports:
+        - containerPort: 8000
+          name: http
+        env:
+        - name: DEBUG
+          valueFrom:
+            configMapKeyRef:
+              name: v-factory-config
+              key: DEBUG
+        - name: LOG_LEVEL
+          valueFrom:
+            configMapKeyRef:
+              name: v-factory-config
+              key: LOG_LEVEL
+        - name: DATABASE_URL
+          value: "postgresql+asyncpg://$(POSTGRES_USER):$(POSTGRES_PASSWORD)@postgres-service:5432/$(POSTGRES_DB)"
+        - name: POSTGRES_USER
+          valueFrom:
+            configMapKeyRef:
+              name: v-factory-config
+              key: POSTGRES_USER
+        - name: POSTGRES_PASSWORD
+          valueFrom:
+            secretKeyRef:
+              name: v-factory-secrets
+              key: POSTGRES_PASSWORD
+        - name: POSTGRES_DB
+          valueFrom:
+            configMapKeyRef:
+              name: v-factory-config
+              key: POSTGRES_DB
+        - name: REDIS_URL
+          valueFrom:
+            configMapKeyRef:
+              name: v-factory-config
+              key: REDIS_URL
+        - name: UPLOAD_DIR
+          valueFrom:
+            configMapKeyRef:
+              name: v-factory-config
+              key: UPLOAD_DIR
+        - name: CORS_ORIGINS
+          valueFrom:
+            configMapKeyRef:
+              name: v-factory-config
+              key: CORS_ORIGINS
+        volumeMounts:
+        - name: assets-data
+          mountPath: /app/uploads
+        livenessProbe:
+          httpGet:
+            path: /health
+            port: 8000
+          initialDelaySeconds: 40
+          periodSeconds: 30
+          timeoutSeconds: 10
+          failureThreshold: 3
+        readinessProbe:
+          httpGet:
+            path: /health
+            port: 8000
+          initialDelaySeconds: 20
+          periodSeconds: 10
+          timeoutSeconds: 5
+          failureThreshold: 3
+        resources:
+          requests:
+            memory: "256Mi"
+            cpu: "250m"
+          limits:
+            memory: "512Mi"
+            cpu: "500m"
+      volumes:
+      - name: assets-data
+        persistentVolumeClaim:
+          claimName: assets-pvc
+
+---
+# Asset Management용 PersistentVolumeClaim
+apiVersion: v1
+kind: PersistentVolumeClaim
+metadata:
+  name: assets-pvc
+  namespace: v-factory
+  labels:
+    app: asset-management
+spec:
+  accessModes:
+    - ReadWriteMany
+  resources:
+    requests:
+      storage: 50Gi
