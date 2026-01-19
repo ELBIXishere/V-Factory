@@ -6,6 +6,11 @@
 # ============================================
 FROM node:20-alpine AS builder
 
+# 빌드 시점 환경변수 (ARG로 받아서 빌드에 사용)
+ARG NEXT_PUBLIC_API_URL=http://localhost:8001
+ARG NEXT_PUBLIC_INCIDENT_API_URL=http://localhost:8002
+ARG NEXT_PUBLIC_ASSET_API_URL=http://localhost:8003
+
 # 작업 디렉토리 설정
 WORKDIR /app
 
@@ -20,6 +25,11 @@ RUN npm ci --only=production=false
 
 # 소스 코드 복사
 COPY frontend/ ./
+
+# 환경변수 설정 (Next.js 빌드 시점에 주입)
+ENV NEXT_PUBLIC_API_URL=${NEXT_PUBLIC_API_URL}
+ENV NEXT_PUBLIC_INCIDENT_API_URL=${NEXT_PUBLIC_INCIDENT_API_URL}
+ENV NEXT_PUBLIC_ASSET_API_URL=${NEXT_PUBLIC_ASSET_API_URL}
 
 # Next.js 빌드 실행
 RUN npm run build

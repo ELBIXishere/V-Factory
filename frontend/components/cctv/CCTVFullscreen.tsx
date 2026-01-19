@@ -49,61 +49,43 @@ export const CCTVFullscreen = memo(function CCTVFullscreen({
   // 스크린샷 저장 상태
   const [isSaving, setIsSaving] = useState(false);
 
-  // 캔버스 컨텍스트 초기화 및 크기 설정
+  // 컴포넌트 마운트 시 로그
   useEffect(() => {
-    if (!isOpen || !canvasRef.current) return;
-
-    // 컨텍스트 초기화
-    if (!contextRef.current) {
-      contextRef.current = canvasRef.current.getContext("2d");
-      console.log("[CCTVFullscreen] 캔버스 컨텍스트 초기화 완료");
-    }
-    
-    // 캔버스 크기를 컨테이너에 맞게 설정
-    // 모달이 열린 직후에는 DOM이 완전히 렌더링되지 않을 수 있으므로
-    // 여러 번 재시도하는 메커니즘 사용
-    let retryCount = 0;
-    const maxRetries = 10; // 최대 10번 재시도 (약 160ms)
-    
-    const updateCanvasSize = () => {
-      if (!canvasRef.current) return;
-      
-      const container = canvasRef.current.parentElement;
-      if (container) {
-        const rect = container.getBoundingClientRect();
-        if (rect.width > 0 && rect.height > 0) {
-          const oldWidth = canvasRef.current.width;
-          const oldHeight = canvasRef.current.height;
-          canvasRef.current.width = rect.width;
-          canvasRef.current.height = rect.height;
-          
-          console.log("[CCTVFullscreen] 캔버스 크기 설정", {
-            oldSize: `${oldWidth}x${oldHeight}`,
-            newSize: `${rect.width}x${rect.height}`,
-            retryCount,
-          });
-        } else if (retryCount < maxRetries) {
-          // 크기가 아직 0이면 재시도
-          retryCount++;
-          requestAnimationFrame(updateCanvasSize);
-        } else {
-          console.warn("[CCTVFullscreen] 캔버스 크기 설정 실패 - 최대 재시도 횟수 초과");
-        }
-      }
-    };
-
-    // 즉시 한 번 실행
-    updateCanvasSize();
-
-    // DOM 렌더링 완료를 위해 다음 프레임에 다시 실행
-    requestAnimationFrame(() => {
-      updateCanvasSize();
+    console.log("[CCTVFullscreen] 컴포넌트 마운트:", { 
+      isOpen, 
+      hasViewData: !!viewData,
+      hasCctvInfo: !!cctvInfo,
+      viewDataId: viewData?.id,
+      cctvInfoId: cctvInfo?.id,
     });
-  }, [isOpen]); // 모달이 열릴 때마다 크기 재설정
+    
+    return () => {
+      console.log("[CCTVFullscreen] 컴포넌트 언마운트");
+    };
+  }, []); // 마운트 시 한 번만 실행
 
-  // viewData 변경 시 캔버스 업데이트
-  // CCTVFeed와 동일한 방식: viewData?.timestamp가 변경될 때마다 drawImage 실행
+  // isOpen 변경 시 무조건 로그
   useEffect(() => {
+    console.log("[CCTVFullscreen] isOpen 변경:", {
+      isOpen,
+      hasViewData: !!viewData,
+      hasCanvas: !!viewData?.canvas,
+      viewDataId: viewData?.id,
+      viewDataName: viewData?.name,
+      cctvInfoId: cctvInfo?.id,
+      cctvInfoName: cctvInfo?.name,
+    });
+  }, [isOpen, viewData, cctvInfo]);
+
+  // 캔버스 컨텍스트 초기화 (CCTVFeed와 동일한 방식)
+  useEffect(() => {
+    if (canvasRef.current) {
+      contextRef.current = canvasRef.current.getContext("2d");
+    }
+  }, []);
+
+  // 캔버스에 이미지 그리기 함수 (공통 로직)
+  const drawCanvas = useCallback(() => {
     if (!viewData?.canvas || !canvasRef.current || !contextRef.current) {
       return;
     }
@@ -111,19 +93,12 @@ export const CCTVFullscreen = memo(function CCTVFullscreen({
     const ctx = contextRef.current;
     const canvas = canvasRef.current;
 
-    try {
-      // 캔버스 크기 확인 및 조정
-      const container = canvas.parentElement;
-      if (container) {
-        const rect = container.getBoundingClientRect();
-        if (rect.width > 0 && rect.height > 0) {
-          if (canvas.width !== rect.width || canvas.height !== rect.height) {
-            canvas.width = rect.width;
-            canvas.height = rect.height;
-          }
-        }
-      }
+    // 캔버스 크기가 0이면 스킵
+    if (canvas.width === 0 || canvas.height === 0) {
+      return;
+    }
 
+    try {
       // 소스 캔버스를 출력 캔버스에 그리기 (CCTVFeed와 동일한 방식)
       ctx.drawImage(
         viewData.canvas,
@@ -139,7 +114,49 @@ export const CCTVFullscreen = memo(function CCTVFullscreen({
     } catch (error) {
       console.error(`[CCTVFullscreen] drawImage error for ${viewData.id}:`, error);
     }
-  }, [viewData, viewData?.timestamp]); // CCTVFeed와 동일한 의존성
+  }, [viewData]);
+
+  // 캔버스 크기 설정 및 이미지 그리기 (모달이 열릴 때 컨테이너 크기에 맞춤)
+  useEffect(() => {
+    if (!isOpen || !canvasRef.current) return;
+
+    const updateCanvasSize = () => {
+      if (!canvasRef.current) return;
+      
+      const container = canvasRef.current.parentElement;
+      if (container) {
+        const rect = container.getBoundingClientRect();
+        if (rect.width > 0 && rect.height > 0) {
+          const oldWidth = canvasRef.current.width;
+          const oldHeight = canvasRef.current.height;
+          
+          canvasRef.current.width = rect.width;
+          canvasRef.current.height = rect.height;
+          
+          // 캔버스 크기가 변경되면 이미지 다시 그리기
+          if (oldWidth !== rect.width || oldHeight !== rect.height) {
+            drawCanvas();
+          }
+        }
+      }
+    };
+
+    // 즉시 한 번 실행
+    updateCanvasSize();
+
+    // DOM 렌더링 완료를 위해 다음 프레임에 다시 실행
+    requestAnimationFrame(() => {
+      updateCanvasSize();
+    });
+  }, [isOpen, drawCanvas]);
+
+  // viewData 변경 시 캔버스 업데이트
+  // CCTVFeed와 동일한 방식: viewData?.timestamp가 변경될 때마다 drawImage 실행
+  useEffect(() => {
+    if (!isOpen) return; // 모달이 닫혀있으면 스킵
+    
+    drawCanvas();
+  }, [viewData, viewData?.timestamp, isOpen, drawCanvas]);
 
   // 스크린샷 저장
   const handleSaveScreenshot = useCallback(async () => {

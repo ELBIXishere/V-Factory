@@ -13,6 +13,8 @@ import { SceneManager } from "@/lib/three";
 export interface ConveyorBeltConfig {
   // 고유 ID
   id: string;
+  // 이름 (표시용)
+  name?: string;
   // 위치
   position: { x: number; y: number; z: number };
   // 회전 (Y축, 라디안)

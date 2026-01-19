@@ -8,6 +8,7 @@ import { Header } from "@/components/layout/Header";
 import { MobileNav } from "@/components/layout/MobileNav";
 import { QueryProvider } from "@/components/providers/QueryProvider";
 import { Toaster } from "@/components/ui/sonner";
+import { GlobalSceneProvider } from "@/components/three/GlobalSceneProvider";
 
 // 폰트 설정
 const inter = Inter({
@@ -39,6 +40,9 @@ export default function RootLayout({
         className={`${inter.variable} ${jetbrainsMono.variable} min-h-screen bg-background font-sans antialiased`}
       >
         <QueryProvider>
+          {/* 전역 3D 씬 프로바이더 (페이지 간 씬 상태 공유) */}
+          <GlobalSceneProvider />
+          
           {/* 메인 레이아웃 구조 */}
           <div className="flex min-h-screen">
             {/* 사이드바 (데스크톱) */}

@@ -370,27 +370,27 @@ Docker 컨테이너화 및 Kubernetes 배포 환경을 구성합니다.
 ### Tasks
 
 #### Task 9.1: Docker 이미지 빌드
-- [ ] Frontend Dockerfile 작성
-- [ ] Backend 서비스별 Dockerfile 작성
-- [ ] Docker Compose 프로덕션 설정
-- [ ] 멀티스테이지 빌드 최적화
+- [x] Frontend Dockerfile 작성
+- [x] Backend 서비스별 Dockerfile 작성
+- [x] Docker Compose 프로덕션 설정
+- [x] 멀티스테이지 빌드 최적화
 
 #### Task 9.2: Kubernetes 매니페스트
-- [ ] Deployment 매니페스트 작성
-- [ ] Service 매니페스트 작성
-- [ ] ConfigMap, Secret 설정
-- [ ] Ingress 설정
+- [x] Deployment 매니페스트 작성
+- [x] Service 매니페스트 작성
+- [x] ConfigMap, Secret 설정
+- [x] Ingress 설정
 
 #### Task 9.3: CI/CD 파이프라인
-- [ ] GitHub Actions 워크플로우 작성
-- [ ] 자동 테스트 실행
-- [ ] Docker 이미지 자동 빌드/푸시
-- [ ] 자동 배포 트리거
+- [x] GitHub Actions 워크플로우 작성
+- [x] 자동 테스트 실행
+- [x] Docker 이미지 자동 빌드/푸시
+- [x] 자동 배포 트리거
 
 #### Task 9.4: 모니터링 설정
-- [ ] 로깅 시스템 구성 (stdout → 집계)
-- [ ] 헬스체크 엔드포인트 구현
-- [ ] 기본 메트릭 수집 설정
+- [x] 로깅 시스템 구성 (stdout → 집계)
+- [x] 헬스체크 엔드포인트 구현
+- [~] 기본 메트릭 수집 설정 (기본 헬스체크 완료, Prometheus 등 추가 가능)
 
 ---
 
@@ -415,3 +415,4 @@ Docker 컨테이너화 및 Kubernetes 배포 환경을 구성합니다.
 |------|------|----------|
 | 1.0.0 | 2026-01-13 | 최초 작성 |
 | 1.1.0 | 2026-01-13 | Phase 8 완료: 테스트 및 최적화 구현 |
+| 1.2.0 | 2026-01-15 | Phase 9 완료: 배포 및 인프라 구현 (Docker, Kubernetes, CI/CD) |

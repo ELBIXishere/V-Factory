@@ -10,7 +10,7 @@ metadata:
   annotations:
     # Nginx Ingress Controller 설정
     nginx.ingress.kubernetes.io/rewrite-target: /
-    nginx.ingress.kubernetes.io/ssl-redirect: "true"
+    nginx.ingress.kubernetes.io/ssl-redirect: "false"
     # CORS 설정 (필요시)
     nginx.ingress.kubernetes.io/enable-cors: "true"
     nginx.ingress.kubernetes.io/cors-allow-origin: "*"
@@ -19,13 +19,15 @@ metadata:
 spec:
   ingressClassName: nginx
   # TLS 설정 (Let's Encrypt 등으로 인증서 발급 필요)
+  # HTTP만 사용 (개발/테스트용)
   # tls:
   # - hosts:
-  #   - yourdomain.com
+  #   - v-factory-elbix.com
+  #   - api.v-factory-elbix.com
   #   secretName: v-factory-tls
   rules:
   # 프론트엔드
-  - host: yourdomain.com  # 실제 도메인으로 변경 필요
+  - host: v-factory-elbix.com
     http:
       paths:
       - path: /
@@ -36,7 +38,7 @@ spec:
             port:
               number: 80
   # 백엔드 API
-  - host: api.yourdomain.com  # 실제 도메인으로 변경 필요
+  - host: api.v-factory-elbix.com
     http:
       paths:
       # Factory Core API

@@ -6,7 +6,7 @@
  */
 
 import { useEffect, useRef, useCallback } from "react";
-import { SceneManager, createSceneManager, getRendererType } from "@/lib/three";
+import { SceneManager, createSceneManager } from "@/lib/three";
 import { useSceneStore } from "@/lib/stores";
 
 // 컴포넌트 Props
@@ -40,6 +40,8 @@ export function WebGPUCanvas({
   onError,
   className = "",
 }: WebGPUCanvasProps) {
+  console.log("[WebGPUCanvas] 컴포넌트 렌더링됨");
+  
   // 컨테이너 ref
   const containerRef = useRef<HTMLDivElement>(null);
   // SceneManager ref
@@ -74,11 +76,14 @@ export function WebGPUCanvas({
 
   // 씬 초기화
   useEffect(() => {
+    console.log("[WebGPUCanvas] useEffect 실행, initialized:", initializedRef.current, "container:", !!containerRef.current);
     // 이미 초기화됨 또는 컨테이너 없음
     if (initializedRef.current || !containerRef.current) {
+      console.log("[WebGPUCanvas] 초기화 스킵 - 이미 초기화됨 또는 컨테이너 없음");
       return;
     }
 
+    console.log("[WebGPUCanvas] 초기화 시작");
     initializedRef.current = true;
     const container = containerRef.current;
 
@@ -98,9 +103,9 @@ export function WebGPUCanvas({
 
         sceneManagerRef.current = sceneManager;
 
-        // 렌더러 타입 저장
-        const rendererType = getRendererType();
-        setRendererInfo({ type: rendererType });
+        // 실제 사용 중인 렌더러 타입 저장 (SceneManager에서 가져옴)
+        const actualRendererType = sceneManager.getRendererType();
+        setRendererInfo({ type: actualRendererType });
         setDebugMode(debug);
 
         // FPS 업데이트 콜백 등록
@@ -114,9 +119,13 @@ export function WebGPUCanvas({
         setLoading(false);
 
         // 콜백 호출
-        onSceneReady?.(sceneManager);
-
-        console.log("[WebGPUCanvas] Scene initialized successfully");
+        console.log("[WebGPUCanvas] Scene initialized successfully, onSceneReady 호출");
+        if (onSceneReady) {
+          onSceneReady(sceneManager);
+          console.log("[WebGPUCanvas] onSceneReady 콜백 호출 완료");
+        } else {
+          console.warn("[WebGPUCanvas] onSceneReady 콜백이 없음");
+        }
       } catch (error) {
         console.error("[WebGPUCanvas] Failed to initialize scene:", error);
         setLoading(false);
@@ -164,7 +173,7 @@ export function WebGPUCanvas({
     <div
       ref={containerRef}
       className={`relative h-full w-full overflow-hidden ${className}`}
-      style={{ minHeight: "400px" }}
+      style={{ minHeight: "200px", minWidth: "200px" }}
     />
   );
 }

@@ -257,27 +257,47 @@ export class MultiViewRenderer {
       helper.visible = wasVisible;
 
       // renderer.domElement를 CCTV 캔버스로 복사
-      targetInfo.context.drawImage(
-        renderer.domElement,
-        0,
-        0,
-        resolution,
-        resolution,
-        0,
-        0,
-        targetInfo.canvas.width,
-        targetInfo.canvas.height
-      );
+      try {
+        // 렌더러가 실제로 렌더링했는지 확인
+        if (!renderer.domElement || renderer.domElement.width === 0 || renderer.domElement.height === 0) {
+          console.warn(`[MultiViewRenderer] ${camera.id}: renderer.domElement가 유효하지 않음`);
+          continue;
+        }
+
+        targetInfo.context.drawImage(
+          renderer.domElement,
+          0,
+          0,
+          resolution,
+          resolution,
+          0,
+          0,
+          targetInfo.canvas.width,
+          targetInfo.canvas.height
+        );
+
+        // 디버깅: 첫 렌더링 시 확인
+        if (this.renderFrameCount === 0) {
+          const imageData = targetInfo.context.getImageData(0, 0, Math.min(10, targetInfo.canvas.width), Math.min(10, targetInfo.canvas.height));
+          const hasPixels = imageData.data.some((v, i) => i % 4 !== 3 && v !== 0);
+          console.log(`[MultiViewRenderer] ${camera.id}: drawImage 완료, hasPixels: ${hasPixels}`);
+        }
+      } catch (error) {
+        console.error(`[MultiViewRenderer] drawImage error for ${camera.id}:`, error);
+        continue; // 에러 발생 시 이 카메라는 스킵
+      }
 
       // 뷰 데이터 생성
-      views.push({
+      const viewData = {
         id: camera.id,
         name: camera.name,
         canvas: targetInfo.canvas,
         isActive: camera.isActive,
         isAccident: camera.isAccident,
         timestamp: Date.now(),
-      });
+      };
+      
+      views.push(viewData);
     }
 
     // 렌더러 크기 복원
@@ -288,45 +308,84 @@ export class MultiViewRenderer {
 
   /**
    * 텍스처를 캔버스로 복사
+   * @param targetInfo 렌더 타겟 정보
+   * @param renderer Three.js 렌더러 (현재 활성화된 RenderTarget이 있어야 함)
+   * @returns 성공 여부 (true: 성공, false: 빈 데이터 또는 실패)
    */
-  private copyTextureToCanvas(targetInfo: RenderTargetInfo): void {
+  private copyTextureToCanvas(targetInfo: RenderTargetInfo, renderer: THREE.WebGLRenderer): boolean {
     const { renderTarget, canvas, context, pixelBuffer, cctvId } = targetInfo;
-    const renderer = this.sceneManager.renderer;
 
-    // 렌더 타겟에서 픽셀 읽기
-    renderer.readRenderTargetPixels(
-      renderTarget,
-      0,
-      0,
-      renderTarget.width,
-      renderTarget.height,
-      pixelBuffer
-    );
-
-    // 디버그: 첫 번째 복사 시 픽셀 데이터 확인
-    if (!this.hasLoggedPixels) {
-      const nonZeroCount = pixelBuffer.filter(v => v !== 0).length;
-      console.log(`[MultiViewRenderer] Pixel data for ${cctvId}: total=${pixelBuffer.length}, nonZero=${nonZeroCount}`);
-      if (nonZeroCount > 0) {
-        this.hasLoggedPixels = true;
+    try {
+      // 렌더러 타입 확인 (readRenderTargetPixels는 WebGL 렌더러에서만 작동)
+      if (!(renderer instanceof THREE.WebGLRenderer)) {
+        if (!this.pixelWarningLogged.has(cctvId)) {
+          console.warn(`[MultiViewRenderer] ${cctvId}: WebGL 렌더러가 아닙니다. readRenderTargetPixels를 사용할 수 없습니다. 렌더러 타입: ${renderer.constructor.name}`);
+          this.pixelWarningLogged.add(cctvId);
+        }
+        return false;
       }
+
+      // 렌더 타겟 재설정 (안전성 강화)
+      renderer.setRenderTarget(renderTarget);
+      
+      // 렌더 타겟에서 픽셀 읽기
+      renderer.readRenderTargetPixels(
+        renderTarget,
+        0,
+        0,
+        renderTarget.width,
+        renderTarget.height,
+        pixelBuffer
+      );
+
+      // 픽셀 데이터 검증 (빈 데이터 처리)
+      const nonZeroCount = pixelBuffer.filter(v => v !== 0).length;
+      if (nonZeroCount === 0) {
+        // 첫 번째 경고만 로그 (반복 로그 방지)
+        if (!this.pixelWarningLogged.has(cctvId)) {
+          console.warn(`[MultiViewRenderer] ${cctvId}: 픽셀 데이터가 비어있습니다. 렌더링이 완료되지 않았을 수 있습니다. 이전 프레임 캔버스를 유지합니다.`);
+          this.pixelWarningLogged.add(cctvId);
+        }
+        // 빈 데이터일 때도 false 반환 (이전 캔버스 유지)
+        return false;
+      }
+
+      // 성공한 경우 경고 플래그 제거 (재시도 시 로그 가능하도록)
+      if (this.pixelWarningLogged.has(cctvId)) {
+        console.log(`[MultiViewRenderer] ${cctvId}: 픽셀 데이터 복구됨`);
+        this.pixelWarningLogged.delete(cctvId);
+      }
+
+      // 디버그: 첫 번째 성공 시 픽셀 데이터 확인
+      if (!this.pixelSuccessLogged.has(cctvId)) {
+        console.log(`[MultiViewRenderer] ${cctvId}: 픽셀 데이터 읽기 성공, total=${pixelBuffer.length}, nonZero=${nonZeroCount}`);
+        this.pixelSuccessLogged.add(cctvId);
+      }
+
+      // ImageData 생성
+      const imageData = new ImageData(
+        new Uint8ClampedArray(pixelBuffer),
+        renderTarget.width,
+        renderTarget.height
+      );
+
+      // 캔버스에 그리기 (Y축 뒤집기)
+      context.save();
+      context.scale(1, -1);
+      context.putImageData(imageData, 0, -renderTarget.height);
+      context.restore();
+      
+      // 성공 시 true 반환
+      return true;
+    } catch (error) {
+      console.error(`[MultiViewRenderer] ${cctvId}: copyTextureToCanvas 에러:`, error);
+      return false; // 에러 시 false 반환
     }
-
-    // ImageData 생성
-    const imageData = new ImageData(
-      new Uint8ClampedArray(pixelBuffer),
-      renderTarget.width,
-      renderTarget.height
-    );
-
-    // 캔버스에 그리기 (Y축 뒤집기)
-    context.save();
-    context.scale(1, -1);
-    context.putImageData(imageData, 0, -renderTarget.height);
-    context.restore();
   }
   
-  private hasLoggedPixels = false;
+  // 카메라별 로그 플래그 관리
+  private pixelWarningLogged = new Set<string>(); // 빈 데이터 경고 로그
+  private pixelSuccessLogged = new Set<string>(); // 성공 로그
 
   /**
    * 특정 카메라의 뷰만 렌더링
@@ -378,7 +437,7 @@ export class MultiViewRenderer {
     // 렌더러 크기 복원
     renderer.setSize(originalSize.x, originalSize.y, false);
 
-    return {
+    const viewData = {
       id: camera.id,
       name: camera.name,
       canvas: targetInfo.canvas,
@@ -386,6 +445,8 @@ export class MultiViewRenderer {
       isAccident: camera.isAccident,
       timestamp: Date.now(),
     };
+
+    return viewData;
   }
 
   /**
@@ -423,18 +484,33 @@ export class MultiViewRenderer {
    * 렌더 콜백 함수
    */
   private renderCallback = (): void => {
-    if (!this.isRendering || !this.onViewUpdate) return;
-
-    const views = this.renderAllViews();
-    
-    // 디버그: 첫 번째 렌더링 시 로그 출력
-    if (views.length > 0 && !this.hasLoggedFirstRender) {
-      console.log(`[MultiViewRenderer] First render: ${views.length} views`, views.map(v => v.id));
-      this.hasLoggedFirstRender = true;
+    if (!this.isRendering || !this.onViewUpdate) {
+      return;
     }
-    
-    this.onViewUpdate(views);
+
+    try {
+      const views = this.renderAllViews();
+      this.renderFrameCount++;
+      
+      // 디버깅: 첫 렌더링 또는 주기적으로 로그
+      if (this.renderFrameCount === 1 || this.renderFrameCount % 60 === 0) {
+        console.log(`[MultiViewRenderer] renderCallback: 프레임 ${this.renderFrameCount}, 뷰 수: ${views.length}`);
+        if (views.length > 0) {
+          console.log(`[MultiViewRenderer] 첫 번째 뷰:`, {
+            id: views[0].id,
+            hasCanvas: !!views[0].canvas,
+            canvasSize: views[0].canvas ? `${views[0].canvas.width}x${views[0].canvas.height}` : 'none',
+          });
+        }
+      }
+      
+      this.onViewUpdate(views);
+    } catch (error) {
+      console.error("[MultiViewRenderer] renderCallback 에러:", error);
+    }
   };
+  
+  private renderFrameCount: number = 0;
   
   private hasLoggedFirstRender = false;
 

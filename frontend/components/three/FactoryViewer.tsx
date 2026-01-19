@@ -6,9 +6,9 @@
  * 로딩 상태, 에러 처리, 컨트롤 UI 포함
  */
 
-import { useState, useCallback } from "react";
+import { useState, useCallback, useEffect, useRef } from "react";
 import { useSceneStore } from "@/lib/stores";
-import { FactoryScene } from "./FactoryScene";
+import { FactoryScene, FactorySceneRef } from "./FactoryScene";
 import { NPCState } from "./WorkerNPC";
 import { SceneManager } from "@/lib/three";
 
@@ -28,11 +28,39 @@ export function FactoryViewer({ debug = false, className = "" }: FactoryViewerPr
   // 로컬 상태
   const [completedBoxes, setCompletedBoxes] = useState(0);
   const [sceneReady, setSceneReady] = useState(false);
-
+  
+  // FactoryScene ref (로컬 씬 사용 시)
+  const factorySceneRef = useRef<FactorySceneRef>(null);
+  const setFactorySceneRef = useSceneStore((state) => state.setFactorySceneRef);
+  
+  // FactoryScene ref를 전역 스토어에 저장
+  useEffect(() => {
+    if (factorySceneRef.current) {
+      setFactorySceneRef(factorySceneRef.current);
+      console.log("[FactoryViewer] FactoryScene ref를 전역 스토어에 저장");
+    }
+  }, [setFactorySceneRef]);
+  
   // 씬 스토어
   const isLoading = useSceneStore((state) => state.isLoading);
   const loadingMessage = useSceneStore((state) => state.loadingMessage);
   const rendererInfo = useSceneStore((state) => state.rendererInfo);
+  const globalSceneManager = useSceneStore((state) => state.sceneManager);
+  const isInitialized = useSceneStore((state) => state.isInitialized);
+
+  // 전역 씬이 준비되면 자동으로 준비 상태로 설정
+  useEffect(() => {
+    if (isInitialized && globalSceneManager) {
+      setSceneReady(true);
+    }
+  }, [isInitialized, globalSceneManager]);
+
+  // 디버그 모드 변경 시 전역 씬 매니저에 전달
+  useEffect(() => {
+    if (globalSceneManager) {
+      globalSceneManager.setDebugMode(debug);
+    }
+  }, [debug, globalSceneManager]);
 
   // 씬 준비 완료 핸들러
   const handleSceneReady = useCallback((manager: SceneManager) => {
@@ -60,9 +88,11 @@ export function FactoryViewer({ debug = false, className = "" }: FactoryViewerPr
         </div>
       )}
 
-      {/* 3D 씬 */}
+      {/* 3D 씬 (일시적으로 로컬 씬 사용 - 전역 씬 문제 해결 전까지) */}
       <FactoryScene
+        ref={factorySceneRef}
         debug={debug}
+        useGlobalScene={false}
         onSceneReady={handleSceneReady}
         onWorkerStateChange={handleWorkerStateChange}
         onBoxCompleted={handleBoxCompleted}

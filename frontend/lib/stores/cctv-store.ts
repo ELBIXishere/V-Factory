@@ -1,5 +1,6 @@
 import { create } from "zustand";
 import type { Vector3 } from "./factory-store";
+import type { CCTVViewData } from "@/lib/three";
 
 /**
  * CCTV 설정 타입
@@ -28,6 +29,9 @@ interface CCTVState {
   // 전체 화면 CCTV ID
   fullscreenCCTVId: string | null;
 
+  // CCTV 뷰 데이터 (렌더링된 캔버스 포함)
+  cctvViews: CCTVViewData[];
+
   // 로딩 상태
   isLoading: boolean;
 
@@ -41,6 +45,8 @@ interface CCTVState {
   removeCCTV: (id: string) => void;
   selectCCTV: (cctv: CCTVConfig | null) => void;
   setFullscreenCCTV: (id: string | null) => void;
+  setCCTVViews: (views: CCTVViewData[]) => void;
+  getCCTVView: (id: string) => CCTVViewData | undefined;
   setAccidentFlag: (id: string, isAccident: boolean) => void;
   clearAllAccidents: () => void;
   setLoading: (isLoading: boolean) => void;
@@ -53,6 +59,7 @@ const initialState = {
   cctvList: [],
   selectedCCTV: null,
   fullscreenCCTVId: null,
+  cctvViews: [],
   isLoading: false,
   error: null,
 };
@@ -97,6 +104,15 @@ export const useCCTVStore = create<CCTVState>((set) => ({
 
   // 전체 화면 설정
   setFullscreenCCTV: (fullscreenCCTVId) => set({ fullscreenCCTVId }),
+
+  // CCTV 뷰 데이터 설정
+  setCCTVViews: (cctvViews) => set({ cctvViews }),
+
+  // 특정 CCTV 뷰 데이터 가져오기
+  getCCTVView: (id) => {
+    const state = useCCTVStore.getState();
+    return state.cctvViews.find((v) => v.id === id);
+  },
 
   // 사고 플래그 설정 (실시간 이벤트용)
   setAccidentFlag: (id, isAccident) =>

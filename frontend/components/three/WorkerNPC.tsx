@@ -5,9 +5,10 @@
  * 공장 작업자 NPC - Waypoint 기반 이동, 상태별 색상
  */
 
-import { useEffect, useRef, useCallback } from "react";
+import { useEffect, useRef, useCallback, useState } from "react";
 import * as THREE from "three";
 import { SceneManager } from "@/lib/three";
+import { NPCNameLabel } from "./NPCNameLabel";
 
 // NPC 상태 타입
 export type NPCState = "working" | "idle" | "injured" | "walking" | "waiting";
@@ -262,9 +263,11 @@ export interface WorkerNPCProps {
   // 컨베이어 벨트 설정 (충돌 감지용)
   conveyorBelts?: ConveyorBeltConfig[];
   // NPC 참조 등록 콜백 (위치 및 상태 제어용)
-  onRegister?: (npcId: string, getPosition: () => { x: number; y: number; z: number }, setState: (state: NPCState) => void) => void;
+  onRegister?: (npcId: string, getPosition: () => { x: number; y: number; z: number }, setState: (state: NPCState) => void, getState: () => NPCState) => void;
   // 공장 경계 (벽 회피용)
   factoryBounds?: FactoryBounds;
+  // NPC 이름 레이블 컨테이너 (Portal 타겟)
+  nameLabelContainer?: HTMLElement | null;
 }
 
 /**
@@ -472,11 +475,18 @@ export function useWorkerNPC({
           // 처음 도착
           onWaypointReached?.(config.id, waypointIndexRef.current);
 
+          // 고정 작업자 판단 (speed가 0이고 waypoint가 1개)
+          const isFixedWorker = speed === 0 && waypoints.length === 1;
+          
           // 대기 시간 설정
           const waitTime = targetWaypoint.waitTime ?? 1;
-          if (waitTime > 0) {
-            // 대기 중에는 idle 상태 유지 (색상 변경 방지)
+          if (waitTime > 0 && !isFixedWorker) {
+            // 순찰 NPC만 대기 중에는 idle 상태로 변경
             setStateRef.current("idle");
+            waitTimerRef.current = waitTime;
+          } else if (isFixedWorker) {
+            // 고정 작업자는 working 상태 유지
+            setStateRef.current("working");
             waitTimerRef.current = waitTime;
           }
         }
@@ -930,6 +940,13 @@ export function useWorkerNPC({
 
   const getPosition = useCallback(() => getPositionRef.current(), []);
 
+  // getState ref (상태 조회용) - 항상 최신 stateRef를 참조하도록 함수로 유지
+  const getStateRef = useRef<() => NPCState>(() => {
+    return stateRef.current;
+  });
+  // getState 함수를 항상 최신 stateRef를 반환하도록 업데이트
+  getStateRef.current = () => stateRef.current;
+
   // onRegister 콜백을 useRef로 안정화
   const onRegisterRef = useRef(onRegister);
   useEffect(() => {
@@ -948,7 +965,7 @@ export function useWorkerNPC({
 
     // NPC 참조 등록 (useRef를 통해 안정적인 참조 사용)
     if (onRegisterRef.current) {
-      onRegisterRef.current(config.id, getPositionRef.current, setStateRef.current);
+      onRegisterRef.current(config.id, getPositionRef.current, setStateRef.current, getStateRef.current);
     }
 
     // 애니메이션 콜백 등록
@@ -995,7 +1012,18 @@ export function useWorkerNPC({
  * WorkerNPC 컴포넌트
  */
 export function WorkerNPC(props: WorkerNPCProps) {
-  useWorkerNPC(props);
+  const npcData = useWorkerNPC(props);
+  const [npcGroup, setNpcGroup] = useState<THREE.Group | null>(null);
+
+  // 그룹 참조 업데이트
+  useEffect(() => {
+    if (npcData.group) {
+      setNpcGroup(npcData.group);
+    }
+  }, [npcData.group]);
+
+  // NPC 이름 레이블은 3D 렌더러 안에서 표시하지 않음
+  // 더블클릭으로 정보 확인 가능
   return null;
 }
 

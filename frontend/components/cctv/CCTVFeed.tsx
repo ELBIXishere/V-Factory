@@ -46,6 +46,13 @@ export const CCTVFeed = memo(function CCTVFeed({
   showTimestamp = false,
   showOverlay = true,
 }: CCTVFeedProps) {
+  const displayId = viewData?.id ?? cctvId ?? "unknown";
+  
+  // 컴포넌트 마운트 확인
+  useEffect(() => {
+    console.log(`[CCTVFeed] 컴포넌트 마운트: ${displayId}, viewData:`, !!viewData, "canvas:", !!viewData?.canvas);
+  }, [displayId, viewData]);
+  
   // 출력용 캔버스 ref
   const canvasRef = useRef<HTMLCanvasElement>(null);
   const contextRef = useRef<CanvasRenderingContext2D | null>(null);
@@ -54,36 +61,73 @@ export const CCTVFeed = memo(function CCTVFeed({
   useEffect(() => {
     if (canvasRef.current) {
       contextRef.current = canvasRef.current.getContext("2d");
+      console.log(`[CCTVFeed] ${displayId}: 캔버스 컨텍스트 초기화, context:`, !!contextRef.current);
+    } else {
+      console.warn(`[CCTVFeed] ${displayId}: canvasRef.current가 없음`);
     }
-  }, []);
+  }, [displayId]);
 
   // viewData 변경 시 캔버스 업데이트
-  // timestamp를 의존성에 추가하여 매 프레임 업데이트 감지
+  // canvas 참조 자체를 의존성으로 사용하여 강제 업데이트 보장
   useEffect(() => {
-    if (!viewData?.canvas || !canvasRef.current || !contextRef.current) {
+    const displayId = viewData?.id ?? cctvId ?? "unknown";
+    
+    if (!viewData?.canvas) {
+      console.log(`[CCTVFeed] ${displayId}: viewData.canvas가 없음`);
+      return;
+    }
+    
+    if (!canvasRef.current) {
+      console.log(`[CCTVFeed] ${displayId}: canvasRef.current가 없음`);
+      return;
+    }
+    
+    if (!contextRef.current) {
+      console.log(`[CCTVFeed] ${displayId}: contextRef.current가 없음`);
       return;
     }
 
     const ctx = contextRef.current;
     const canvas = canvasRef.current;
+    const sourceCanvas = viewData.canvas;
+
+    // 캔버스 크기 확인
+    if (sourceCanvas.width === 0 || sourceCanvas.height === 0) {
+      console.warn(`[CCTVFeed] ${displayId}: 소스 캔버스 크기가 0입니다 (${sourceCanvas.width}x${sourceCanvas.height})`);
+      return;
+    }
 
     try {
+      // 출력 캔버스 크기를 소스 캔버스 크기에 맞춤
+      if (canvas.width !== sourceCanvas.width || canvas.height !== sourceCanvas.height) {
+        canvas.width = sourceCanvas.width;
+        canvas.height = sourceCanvas.height;
+        console.log(`[CCTVFeed] ${displayId}: 캔버스 크기 조정 ${canvas.width}x${canvas.height}`);
+      }
+
       // 소스 캔버스를 출력 캔버스에 그리기
+      ctx.clearRect(0, 0, canvas.width, canvas.height);
       ctx.drawImage(
-        viewData.canvas,
+        sourceCanvas,
         0,
         0,
-        viewData.canvas.width,
-        viewData.canvas.height,
+        sourceCanvas.width,
+        sourceCanvas.height,
         0,
         0,
         canvas.width,
         canvas.height
       );
+      
+      // 첫 프레임만 로그
+      if (!(window as any)[`cctv-feed-${displayId}-logged`]) {
+        console.log(`[CCTVFeed] ${displayId}: drawImage 성공, 소스: ${sourceCanvas.width}x${sourceCanvas.height}, 출력: ${canvas.width}x${canvas.height}`);
+        (window as any)[`cctv-feed-${displayId}-logged`] = true;
+      }
     } catch (error) {
-      console.error(`[CCTVFeed] drawImage error for ${viewData.id}:`, error);
+      console.error(`[CCTVFeed] ${displayId}: drawImage error:`, error);
     }
-  }, [viewData, viewData?.timestamp]);
+  }, [viewData, viewData?.canvas, viewData?.timestamp, cctvId]); // canvas 참조를 명시적으로 의존성에 포함
 
   // 표시할 이름
   const displayName = viewData?.name ?? cctvName ?? cctvId ?? "Unknown";

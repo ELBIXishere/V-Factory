@@ -12,6 +12,11 @@ import { checkWebGPUSupport, getRendererType } from "./webgpu-utils";
 import { AlertEffectPass, AlertEffectOptions } from "./effects/AlertEffectPass";
 import { OutlineEffectPass, OutlineEffectOptions } from "./effects/OutlineEffectPass";
 
+// WebGPU 렌더러 타입 (Three.js WebGPURenderer 또는 WebGLRenderer)
+// 현재는 WebGL만 사용하지만, 향후 WebGPU 지원을 위해 타입 확장 가능
+// WebGLRenderer는 getSize, setSize, render, dispose 등의 메서드를 모두 가지고 있음
+type Renderer = THREE.WebGLRenderer;
+
 // 씬 매니저 설정 옵션
 export interface SceneManagerOptions {
   // 컨테이너 요소
@@ -37,8 +42,10 @@ export class SceneManager {
   // Three.js 핵심 요소
   scene: THREE.Scene;
   camera: THREE.PerspectiveCamera;
-  renderer: THREE.WebGLRenderer;
+  renderer: Renderer;
   controls: OrbitControls;
+  // 실제 사용 중인 렌더러 타입
+  private rendererType: "webgpu" | "webgl" = "webgl";
 
   // 설정
   private container: HTMLElement;
@@ -47,6 +54,11 @@ export class SceneManager {
   private isInitialized: boolean = false;
   private renderCallbacks: Set<(deltaTime: number) => void> = new Set();
   private clock: THREE.Clock;
+  private resizeHandler!: () => void;
+  
+  // 렌더링 빈도 제한 (1 = 매 프레임, 2 = 2프레임마다, 3 = 3프레임마다 등)
+  private renderInterval: number = 1;
+  private renderFrameCount: number = 0;
 
   // 씬 요소
   private floor: THREE.Mesh | null = null;
@@ -100,30 +112,74 @@ export class SceneManager {
       return;
     }
 
-    // WebGPU 지원 체크 (현재는 정보 로깅용으로만 사용)
+    // WebGPU 지원 체크
     const webgpuSupported = await checkWebGPUSupport();
-    const rendererType = getRendererType();
+    const detectedRendererType = getRendererType();
 
     console.log(`[SceneManager] WebGPU supported: ${webgpuSupported}`);
-    console.log(`[SceneManager] Using ${rendererType} renderer`);
+    console.log(`[SceneManager] Detected renderer type: ${detectedRendererType}`);
 
-    // 렌더러 생성 (현재는 WebGL만 사용, WebGPU는 Three.js 정식 지원 시 추가)
-    // Three.js WebGPU 렌더러는 아직 실험적이고 빌드 호환성 문제가 있음
-    this.renderer = new THREE.WebGLRenderer({
-      antialias: options.antialias ?? true,
-      powerPreference: "high-performance",
-      preserveDrawingBuffer: true, // 렌더 타겟에서 픽셀 읽기를 위해 필요
-    });
+    // WebGPU 렌더러 시도 (지원되는 경우)
+    // 주의: Three.js 0.170.0에는 WebGPURenderer가 포함되어 있지 않을 수 있음
+    // 현재는 WebGPU 지원을 체크하지만 실제로는 WebGL 렌더러를 사용
+    // 향후 Three.js가 WebGPURenderer를 정식 지원하면 아래 코드를 활성화
+    if (webgpuSupported && detectedRendererType === "webgpu") {
+      try {
+        // Three.js WebGPURenderer 동적 임포트 시도
+        // Next.js 빌드 시 정적 분석을 피하기 위해 문자열로 경로 지정
+        const webgpuPath = "three/examples/jsm/renderers/webgpu/WebGPURenderer.js";
+        const WebGPURendererModule = await import(/* @vite-ignore */ webgpuPath).catch(() => null);
 
-    // 그림자 설정
-    if (options.enableShadows !== false) {
-      this.renderer.shadowMap.enabled = true;
-      this.renderer.shadowMap.type = THREE.PCFSoftShadowMap;
+        if (WebGPURendererModule?.WebGPURenderer) {
+          // WebGPU 렌더러 생성
+          this.renderer = new WebGPURendererModule.WebGPURenderer({
+            antialias: options.antialias ?? true,
+          });
+          this.rendererType = "webgpu";
+          console.log("[SceneManager] WebGPU renderer created successfully");
+        } else {
+          throw new Error("WebGPURenderer not available in Three.js");
+        }
+      } catch (error) {
+        console.warn(
+          "[SceneManager] Failed to create WebGPU renderer, falling back to WebGL:",
+          error
+        );
+        // WebGL로 폴백
+        this.renderer = new THREE.WebGLRenderer({
+          antialias: options.antialias ?? true,
+          powerPreference: "high-performance",
+          preserveDrawingBuffer: true,
+        });
+        this.rendererType = "webgl";
+      }
+    } else {
+      // WebGL 렌더러 생성
+      this.renderer = new THREE.WebGLRenderer({
+        antialias: options.antialias ?? true,
+        powerPreference: "high-performance",
+        preserveDrawingBuffer: true, // 렌더 타겟에서 픽셀 읽기를 위해 필요
+      });
+      this.rendererType = "webgl";
+      console.log("[SceneManager] Using WebGL renderer");
     }
 
-    // 톤 매핑 설정 (더 나은 색상 표현)
-    this.renderer.toneMapping = THREE.ACESFilmicToneMapping;
-    this.renderer.toneMappingExposure = 1.0;
+    // 렌더러별 설정 적용
+    if (this.rendererType === "webgl" && this.renderer instanceof THREE.WebGLRenderer) {
+      // WebGL 전용 설정
+      // 그림자 설정
+      if (options.enableShadows !== false) {
+        this.renderer.shadowMap.enabled = true;
+        this.renderer.shadowMap.type = THREE.PCFSoftShadowMap;
+      }
+
+      // 톤 매핑 설정 (더 나은 색상 표현)
+      this.renderer.toneMapping = THREE.ACESFilmicToneMapping;
+      this.renderer.toneMappingExposure = 1.0;
+    } else if (this.rendererType === "webgpu") {
+      // WebGPU 렌더러 설정 (필요한 경우)
+      console.log("[SceneManager] WebGPU renderer configured");
+    }
 
     // 컨테이너에 캔버스 추가
     this.container.appendChild(this.renderer.domElement);
@@ -140,8 +196,9 @@ export class SceneManager {
     // 초기 크기 설정
     this.handleResize();
 
-    // 리사이즈 이벤트 리스너
-    window.addEventListener("resize", this.handleResize);
+    // 리사이즈 이벤트 리스너 (참조 저장 필요)
+    this.resizeHandler = () => this.handleResize();
+    window.addEventListener("resize", this.resizeHandler);
 
     // 기본 씬 요소 설정
     this.setupLighting();
@@ -258,16 +315,21 @@ export class SceneManager {
 
   /**
    * 리사이즈 핸들러
+   * @param customContainer - 커스텀 컨테이너 (지정하지 않으면 기본 컨테이너 사용)
    */
-  handleResize = (): void => {
-    const width = this.container.clientWidth;
-    const height = this.container.clientHeight;
+  handleResize = (customContainer?: HTMLElement): void => {
+    const container = customContainer ?? this.container;
+    const width = container.clientWidth;
+    const height = container.clientHeight;
 
     this.camera.aspect = width / height;
     this.camera.updateProjectionMatrix();
 
     this.renderer.setSize(width, height);
-    this.renderer.setPixelRatio(Math.min(window.devicePixelRatio, 2));
+    // setPixelRatio는 WebGL 렌더러에만 있음
+    if (this.renderer instanceof THREE.WebGLRenderer) {
+      this.renderer.setPixelRatio(Math.min(window.devicePixelRatio, 2));
+    }
 
     // 후처리 컴포저 크기 업데이트
     if (this.composer) {
@@ -276,6 +338,15 @@ export class SceneManager {
     if (this.outlineEffectPass) {
       this.outlineEffectPass.setSize(width, height);
     }
+  };
+
+  /**
+   * 컨테이너 업데이트 (렌더러를 다른 컨테이너로 이동할 때 사용)
+   * @param newContainer - 새로운 컨테이너
+   */
+  updateContainer(newContainer: HTMLElement): void {
+    this.container = newContainer;
+    this.handleResize();
   };
 
   /**
@@ -307,11 +378,17 @@ export class SceneManager {
 
       const deltaTime = this.clock.getDelta();
 
-      // 등록된 콜백들 실행
+      // 등록된 콜백들 실행 (항상 실행 - CCTV 렌더링 등에 필요)
       this.renderCallbacks.forEach((callback) => callback(deltaTime));
 
-      // Controls 업데이트
+      // Controls 업데이트 (항상 실행 - 부드러운 컨트롤을 위해)
       this.controls.update();
+
+      // 렌더링 빈도 제한 적용
+      this.renderFrameCount++;
+      if (this.renderFrameCount % this.renderInterval !== 0) {
+        return; // 스킵
+      }
 
       // 렌더링 (후처리 또는 기본)
       if (this.enablePostProcessing && this.composer) {
@@ -332,6 +409,28 @@ export class SceneManager {
       cancelAnimationFrame(this.animationId);
       this.animationId = null;
     }
+    this.renderFrameCount = 0; // 프레임 카운터 리셋
+  }
+
+  /**
+   * 렌더링 빈도 설정
+   * @param interval 렌더링 간격 (1 = 매 프레임, 2 = 2프레임마다, 3 = 3프레임마다 등)
+   */
+  setRenderInterval(interval: number): void {
+    if (interval < 1) {
+      console.warn("[SceneManager] renderInterval은 1 이상이어야 합니다.");
+      interval = 1;
+    }
+    this.renderInterval = interval;
+    this.renderFrameCount = 0; // 프레임 카운터 리셋
+    console.log(`[SceneManager] 렌더링 빈도 설정: ${interval}프레임마다 렌더링`);
+  }
+
+  /**
+   * 애니메이션 루프 실행 중인지 확인
+   */
+  isAnimationRunning(): boolean {
+    return this.animationId !== null;
   }
 
   /**
@@ -341,10 +440,21 @@ export class SceneManager {
     this.debug = enabled;
 
     if (enabled) {
-      if (!this.gridHelper) {
-        this.setupHelpers();
+      // 기존 헬퍼가 있으면 먼저 제거
+      if (this.gridHelper) {
+        this.scene.remove(this.gridHelper);
+        this.gridHelper.dispose();
+        this.gridHelper = null;
       }
+      if (this.axesHelper) {
+        this.scene.remove(this.axesHelper);
+        this.axesHelper.dispose();
+        this.axesHelper = null;
+      }
+      // 헬퍼 생성
+      this.setupHelpers();
     } else {
+      // 디버그 모드 비활성화 시 헬퍼 제거
       if (this.gridHelper) {
         this.scene.remove(this.gridHelper);
         this.gridHelper.dispose();
@@ -394,7 +504,9 @@ export class SceneManager {
     this.stopAnimation();
 
     // 이벤트 리스너 제거
-    window.removeEventListener("resize", this.handleResize);
+    if (this.resizeHandler) {
+      window.removeEventListener("resize", this.resizeHandler);
+    }
 
     // 렌더 콜백 정리
     this.renderCallbacks.clear();
@@ -543,6 +655,13 @@ export class SceneManager {
    */
   getOutlineEffectPass(): OutlineEffectPass | null {
     return this.outlineEffectPass;
+  }
+
+  /**
+   * 현재 사용 중인 렌더러 타입 반환
+   */
+  getRendererType(): "webgpu" | "webgl" {
+    return this.rendererType;
   }
 }
 

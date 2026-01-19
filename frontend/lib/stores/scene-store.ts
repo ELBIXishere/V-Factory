@@ -1,4 +1,8 @@
 import { create } from "zustand";
+import type { SceneManager } from "@/lib/three/scene-manager";
+import type { FactorySceneRef, NPCRef } from "@/components/three/FactoryScene";
+import type { ConveyorBeltConfig } from "@/components/three/ConveyorBelt";
+import type { WorkerNPCConfig } from "@/components/three/WorkerNPC";
 
 /**
  * 3D 씬 상태 타입 정의
@@ -24,9 +28,22 @@ export type SceneMode = "view" | "edit" | "simulation";
 /**
  * 3D 씬 상태 스토어 타입
  */
-interface SceneState {
+export interface SceneState {
   // 씬 초기화 상태
   isInitialized: boolean;
+
+  // 전역 SceneManager 인스턴스
+  sceneManager: SceneManager | null;
+
+  // 전역 FactoryScene ref (NPC 추가 등 제어용)
+  factorySceneRef: FactorySceneRef | null;
+
+  // 전역 NPC 참조 맵 (더블클릭 등 이벤트 처리용)
+  npcRefs: Map<string, NPCRef>;
+  
+  // 전역 컨베이어 벨트 및 작업자 설정 (더블클릭 이벤트 처리용)
+  conveyorBelts: ConveyorBeltConfig[];
+  workers: WorkerNPCConfig[];
 
   // 로딩 상태
   isLoading: boolean;
@@ -54,6 +71,12 @@ interface SceneState {
 
   // 액션
   setInitialized: (isInitialized: boolean) => void;
+  setSceneManager: (manager: SceneManager | null) => void;
+  getSceneManager: () => SceneManager | null;
+  setFactorySceneRef: (ref: FactorySceneRef | null) => void;
+  setNPCRefs: (refs: Map<string, NPCRef>) => void;
+  setConveyorBelts: (belts: ConveyorBeltConfig[]) => void;
+  setWorkers: (workers: WorkerNPCConfig[]) => void;
   setLoading: (isLoading: boolean, message?: string) => void;
   setLoadingProgress: (progress: number) => void;
   setRendererInfo: (info: Partial<RendererInfo>) => void;
@@ -83,6 +106,11 @@ const defaultRendererInfo: RendererInfo = {
 // 초기 상태
 const initialState = {
   isInitialized: false,
+  sceneManager: null,
+  factorySceneRef: null,
+  npcRefs: new Map<string, NPCRef>(),
+  conveyorBelts: [],
+  workers: [],
   isLoading: false,
   loadingProgress: 0,
   loadingMessage: "",
@@ -104,6 +132,27 @@ export const useSceneStore = create<SceneState>((set) => ({
 
   // 씬 초기화 상태 설정
   setInitialized: (isInitialized) => set({ isInitialized }),
+
+  // 전역 SceneManager 설정
+  setSceneManager: (sceneManager) => set({ sceneManager }),
+
+  // 전역 SceneManager 가져오기
+  getSceneManager: () => {
+    const state = useSceneStore.getState();
+    return state.sceneManager;
+  },
+
+  // 전역 FactoryScene ref 설정
+  setFactorySceneRef: (factorySceneRef) => set({ factorySceneRef }),
+
+  // 전역 NPC 참조 설정
+  setNPCRefs: (npcRefs) => set({ npcRefs }),
+
+  // 전역 컨베이어 벨트 설정
+  setConveyorBelts: (conveyorBelts) => set({ conveyorBelts }),
+
+  // 전역 작업자 설정
+  setWorkers: (workers) => set({ workers }),
 
   // 로딩 상태 설정
   setLoading: (isLoading, message = "") =>
@@ -144,6 +193,9 @@ export const useSceneStore = create<SceneState>((set) => ({
   setSimulationSpeed: (simulationSpeed) =>
     set({ simulationSpeed: Math.max(0.1, Math.min(5.0, simulationSpeed)) }),
 
-  // 상태 초기화
-  reset: () => set(initialState),
+  // 상태 초기화 (씬 매니저는 유지)
+  reset: () => {
+    const currentSceneManager = useSceneStore.getState().sceneManager;
+    set({ ...initialState, sceneManager: currentSceneManager });
+  },
 }));

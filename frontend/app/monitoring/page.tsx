@@ -6,12 +6,12 @@
  */
 
 import { useCallback, useState, useEffect, useRef } from "react";
+import { useRouter } from "next/navigation";
 import { FactoryScene } from "@/components/three";
 import type { NPCRef } from "@/components/three/FactoryScene";
 import { NPCState } from "@/components/three/WorkerNPC";
 import {
   CCTVGridView,
-  CCTVFullscreen,
   CCTVSettingsPanel,
   type GridLayout,
 } from "@/components/cctv";
@@ -23,7 +23,7 @@ import {
   type CCTVViewData,
   type CCTVCameraConfig,
 } from "@/lib/three";
-import { useCCTVStore } from "@/lib/stores";
+import { useCCTVStore, useSceneStore } from "@/lib/stores";
 import { useCreateIncidentWithCCTV } from "@/lib/api/hooks/useIncidents";
 import { useFactories } from "@/lib/api/hooks/useFactories";
 import type { IncidentType, Vector3 } from "@/lib/api/types";
@@ -33,14 +33,24 @@ import { Switch } from "@/components/ui/switch";
 import { toast } from "sonner";
 
 export default function MonitoringPage() {
-  // SceneManager 상태
-  const [sceneManager, setSceneManager] = useState<SceneManager | null>(null);
+  const router = useRouter();
+  
+  // 전역 씬 매니저 가져오기
+  const globalSceneManager = useSceneStore((state) => state.sceneManager);
+  const isInitialized = useSceneStore((state) => state.isInitialized);
+  
+  // 로컬 SceneManager 상태 (전역 씬이 준비될 때까지 사용)
+  const [localSceneManager, setLocalSceneManager] = useState<SceneManager | null>(null);
+  
+  // 최종 SceneManager (전역 씬 우선)
+  const sceneManager = globalSceneManager || localSceneManager;
 
   // MultiViewRenderer 참조
   const multiViewRendererRef = useRef<MultiViewRenderer | null>(null);
 
-  // CCTV 뷰 데이터 상태
-  const [cctvViews, setCCTVViews] = useState<CCTVViewData[]>([]);
+  // CCTV 뷰 데이터 - 스토어에서 가져오기
+  const cctvViews = useCCTVStore((state) => state.cctvViews);
+  const setCCTVViews = useCCTVStore((state) => state.setCCTVViews);
 
   // CCTV 설정 목록
   const [cctvConfigs, setCCTVConfigs] = useState<CCTVCameraConfig[]>([]);
@@ -50,9 +60,6 @@ export default function MonitoringPage() {
 
   // 선택된 CCTV
   const [selectedCCTVId, setSelectedCCTVId] = useState<string | undefined>();
-
-  // 전체화면 CCTV
-  const [fullscreenCCTVId, setFullscreenCCTVId] = useState<string | null>(null);
 
   // 설정 패널 표시 여부
   const [showSettings, setShowSettings] = useState(false);
@@ -81,10 +88,19 @@ export default function MonitoringPage() {
   const npcRefsRef = useRef<Map<string, NPCRef>>(new Map());
   const findNearestNPCRef = useRef<((position: Vector3) => string | null) | null>(null);
 
-  // 씬 준비 완료 핸들러
+  // 전역 씬 매니저 준비 감지
+  useEffect(() => {
+    if (isInitialized && globalSceneManager) {
+      console.log("[MonitoringPage] 전역 씬 매니저 준비 완료");
+      setLocalSceneManager(globalSceneManager);
+    }
+  }, [isInitialized, globalSceneManager]);
+
+
+  // 씬 준비 완료 핸들러 (로컬 씬용, 전역 씬 미사용 시에만 호출됨)
   const handleSceneReady = useCallback((manager: SceneManager) => {
-    console.log("[MonitoringPage] Scene ready");
-    setSceneManager(manager);
+    console.log("[MonitoringPage] 로컬 씬 준비 완료");
+    setLocalSceneManager(manager);
   }, []);
 
   // NPC 참조 준비 핸들러 (의존성 배열 비움 - 안정적인 콜백)
@@ -99,8 +115,15 @@ export default function MonitoringPage() {
 
   // MultiViewRenderer 초기화
   useEffect(() => {
-    if (!sceneManager) return;
+    console.log("[MonitoringPage] MultiViewRenderer 초기화 시도, sceneManager:", !!sceneManager);
+    
+    if (!sceneManager) {
+      console.warn("[MonitoringPage] sceneManager가 없어서 MultiViewRenderer 초기화 불가");
+      return;
+    }
 
+    console.log("[MonitoringPage] MultiViewRenderer 생성 시작");
+    
     // MultiViewRenderer 생성
     const multiViewRenderer = new MultiViewRenderer({
       sceneManager,
@@ -108,13 +131,17 @@ export default function MonitoringPage() {
       maxCamerasPerFrame: 4,
     });
     multiViewRendererRef.current = multiViewRenderer;
+    console.log("[MonitoringPage] MultiViewRenderer 생성 완료");
 
     // 기본 CCTV 카메라들 추가
     const defaultConfigs = createDefaultCCTVCameras();
+    console.log("[MonitoringPage] 기본 CCTV 카메라 추가 시작:", defaultConfigs.length);
     defaultConfigs.forEach((config) => {
       multiViewRenderer.addCamera(config);
+      console.log(`[MonitoringPage] CCTV 카메라 추가됨: ${config.id} (${config.name})`);
     });
     setCCTVConfigs(defaultConfigs);
+    console.log("[MonitoringPage] 모든 CCTV 카메라 추가 완료");
 
     // 전역 스토어에도 설정
     setCCTVList(
@@ -131,11 +158,20 @@ export default function MonitoringPage() {
     );
 
     // 렌더링 시작
+    console.log("[MonitoringPage] MultiViewRenderer.startRendering() 호출");
     multiViewRenderer.startRendering((views) => {
+      // 디버깅: 뷰 업데이트 확인 (항상 로그)
+      console.log(`[MonitoringPage] CCTV 뷰 업데이트 콜백 호출: ${views.length}개`, {
+        views: views.map(v => ({
+          id: v.id,
+          name: v.name,
+          hasCanvas: !!v.canvas,
+          canvasSize: v.canvas ? `${v.canvas.width}x${v.canvas.height}` : 'none',
+        })),
+      });
       setCCTVViews(views);
     });
-
-    console.log("[MonitoringPage] MultiViewRenderer initialized");
+    console.log("[MonitoringPage] MultiViewRenderer.startRendering() 완료");
 
     // 클린업
     return () => {
@@ -150,15 +186,13 @@ export default function MonitoringPage() {
     setSelectedCCTVId(cctvId);
   }, []);
 
-  // 전체화면 핸들러
-  const handleFullscreen = useCallback((cctvId: string) => {
-    setFullscreenCCTVId(cctvId);
-  }, []);
-
-  // 전체화면 닫기
-  const handleCloseFullscreen = useCallback(() => {
-    setFullscreenCCTVId(null);
-  }, []);
+  // 전체화면 핸들러 - 라우트로 이동
+  const handleFullscreen = useCallback(
+    (cctvId: string) => {
+      router.push(`/monitoring/${cctvId}`);
+    },
+    [router]
+  );
 
   // CCTV 추가
   const handleAddCCTV = useCallback(
@@ -353,15 +387,6 @@ export default function MonitoringPage() {
     return nearest;
   };
 
-  // 전체화면 CCTV 뷰 데이터
-  // 그리드와 동일하게 cctvViews에서 직접 찾기
-  const fullscreenViewData = fullscreenCCTVId
-    ? cctvViews.find((v) => v.id === fullscreenCCTVId)
-    : undefined;
-  const fullscreenCCTVInfo = fullscreenCCTVId
-    ? cctvConfigs.find((c) => c.id === fullscreenCCTVId)
-    : undefined;
-
   return (
     <div className="space-y-6">
       {/* 페이지 헤더 */}
@@ -420,8 +445,10 @@ export default function MonitoringPage() {
       {/* 메인 컨텐츠 영역 */}
       <div className="flex gap-6">
         {/* 3D 씬 (화면 구석에 작게 표시 - CCTV 렌더링용) */}
+        {/* 전역 씬 사용 시에도 작은 컨테이너를 유지 (CCTV 렌더링용) */}
         <div 
-          className="fixed z-50 overflow-hidden rounded border border-border/50 shadow-lg"
+          id="cctv-scene-container"
+          className="fixed z-50 overflow-hidden rounded border border-border/50 shadow-lg bg-background"
           style={{ 
             right: '8px', 
             bottom: '8px',
@@ -430,7 +457,12 @@ export default function MonitoringPage() {
           }}
         >
           <div style={{ width: '512px', height: '384px', transform: 'scale(0.234)', transformOrigin: 'top left' }}>
-            <FactoryScene debug={false} onSceneReady={handleSceneReady} />
+            <FactoryScene 
+              debug={false} 
+              useGlobalScene={true}
+              onSceneReady={handleSceneReady}
+              onNPCRefsReady={handleNPCRefsReady}
+            />
           </div>
         </div>
 
@@ -481,23 +513,6 @@ export default function MonitoringPage() {
           </div>
         )}
       </div>
-
-      {/* 전체화면 모달 */}
-      <CCTVFullscreen
-        isOpen={fullscreenCCTVId !== null}
-        onClose={handleCloseFullscreen}
-        viewData={fullscreenViewData}
-        cctvInfo={
-          fullscreenCCTVInfo
-            ? {
-                id: fullscreenCCTVInfo.id,
-                name: fullscreenCCTVInfo.name,
-                position: fullscreenCCTVInfo.position,
-                fov: fullscreenCCTVInfo.fov,
-              }
-            : undefined
-        }
-      />
     </div>
   );
 }

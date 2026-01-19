@@ -42,8 +42,13 @@ class TestAssetAPI:
         assert response.status_code == 404
     
     async def test_health_check(self, client: AsyncClient):
-        """헬스체크 엔드포인트 테스트"""
+        """향상된 헬스체크 엔드포인트 테스트"""
         response = await client.get("/health")
         
         assert response.status_code == 200
-        assert response.json()["status"] == "healthy"
+        data = response.json()
+        assert "status" in data
+        assert "timestamp" in data
+        assert "database" in data
+        assert data["status"] == "healthy"
+        assert data["database"] == "connected"

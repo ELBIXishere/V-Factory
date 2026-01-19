@@ -12,10 +12,11 @@ metadata:
     app: factory-core
     component: backend
 spec:
-  type: ClusterIP
+  type: NodePort
   ports:
   - port: 8000
     targetPort: 8000
+    nodePort: 30801
     protocol: TCP
     name: http
   selector:
@@ -32,10 +33,11 @@ metadata:
     app: incident-event
     component: backend
 spec:
-  type: ClusterIP
+  type: NodePort
   ports:
   - port: 8000
     targetPort: 8000
+    nodePort: 30802
     protocol: TCP
     name: http
   selector:
@@ -52,10 +54,11 @@ metadata:
     app: asset-management
     component: backend
 spec:
-  type: ClusterIP
+  type: NodePort
   ports:
   - port: 8000
     targetPort: 8000
+    nodePort: 30803
     protocol: TCP
     name: http
   selector:

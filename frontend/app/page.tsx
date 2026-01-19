@@ -4,6 +4,10 @@
 import dynamic from "next/dynamic";
 import { useState } from "react";
 import { useSceneStore } from "@/lib/stores";
+import type { SceneState } from "@/lib/stores/scene-store";
+import { Button } from "@/components/ui/button";
+import { WorkerManagementDialog } from "@/components/worker/WorkerManagementDialog";
+import type { ConveyorBeltConfig } from "@/components/three/ConveyorBelt";
 
 // Three.js 컴포넌트는 클라이언트에서만 로드 (SSR 비활성화)
 const FactoryViewer = dynamic(
@@ -24,10 +28,41 @@ const FactoryViewer = dynamic(
 export default function DashboardPage() {
   // 디버그 모드 상태
   const [debugMode, setDebugMode] = useState(false);
+  
+  // 작업자/감독 추가 다이얼로그 상태
+  const [workerDialogOpen, setWorkerDialogOpen] = useState(false);
+  const [supervisorDialogOpen, setSupervisorDialogOpen] = useState(false);
 
   // 씬 스토어에서 렌더러 정보 가져오기
-  const rendererInfo = useSceneStore((state) => state.rendererInfo);
-  const isInitialized = useSceneStore((state) => state.isInitialized);
+  const rendererInfo = useSceneStore((state: SceneState) => state.rendererInfo);
+  const isInitialized = useSceneStore((state: SceneState) => state.isInitialized);
+  const factorySceneRef = useSceneStore((state: SceneState) => state.factorySceneRef);
+  const globalWorkers = useSceneStore((state: SceneState) => state.workers);
+  
+  // 현장 작업자 수 계산 (speed가 0이고 waypoint가 1개인 NPC)
+  const workerCount = globalWorkers.filter(
+    (w) => w.speed === 0 && w.waypoints.length === 1
+  ).length;
+  
+  // 감독/관리자 수 계산 (speed가 0이 아니거나 waypoint가 1개가 아닌 NPC)
+  const supervisorCount = globalWorkers.filter(
+    (w) => !(w.speed === 0 && w.waypoints.length === 1)
+  ).length;
+  
+  // 컨베이어 벨트 목록 가져오기
+  const getConveyorBelts = (): ConveyorBeltConfig[] => {
+    return factorySceneRef?.getConveyorBelts() || [];
+  };
+  
+  // 작업자 추가 핸들러
+  const handleAddWorker = (name: string, beltId: string) => {
+    factorySceneRef?.addWorker(name, beltId);
+  };
+  
+  // 감독 추가 핸들러
+  const handleAddSupervisor = (name: string) => {
+    factorySceneRef?.addSupervisor(name);
+  };
 
   return (
     <div className="space-y-6">
@@ -40,7 +75,7 @@ export default function DashboardPage() {
       </div>
 
       {/* 상태 카드 그리드 */}
-      <div className="grid gap-4 md:grid-cols-2 lg:grid-cols-4">
+      <div className="grid gap-4 md:grid-cols-2 lg:grid-cols-5">
         {/* 활성 CCTV 카드 */}
         <div className="rounded-lg border border-border bg-card p-6">
           <div className="flex items-center justify-between">
@@ -71,7 +106,7 @@ export default function DashboardPage() {
           <p className="mt-1 text-xs text-status-safe">사고 없음</p>
         </div>
 
-        {/* 작업자 현황 카드 */}
+        {/* 현장 작업자 카드 */}
         <div className="rounded-lg border border-border bg-card p-6">
           <div className="flex items-center justify-between">
             <span className="text-sm font-medium text-muted-foreground">
@@ -80,10 +115,41 @@ export default function DashboardPage() {
             <span className="text-2xl">👷</span>
           </div>
           <div className="mt-2">
-            <span className="text-3xl font-bold text-foreground">3</span>
+            <span className="text-3xl font-bold text-foreground">{workerCount}</span>
             <span className="ml-2 text-sm text-muted-foreground">명</span>
           </div>
-          <p className="mt-1 text-xs text-muted-foreground">실시간 감지</p>
+          <p className="mt-1 text-xs text-muted-foreground">작업대 근무</p>
+          <Button
+            size="sm"
+            variant="outline"
+            className="mt-3 w-full"
+            onClick={() => setWorkerDialogOpen(true)}
+          >
+            작업자 추가
+          </Button>
+        </div>
+
+        {/* 감독/관리자 카드 */}
+        <div className="rounded-lg border border-border bg-card p-6">
+          <div className="flex items-center justify-between">
+            <span className="text-sm font-medium text-muted-foreground">
+              감독/관리자
+            </span>
+            <span className="text-2xl">👔</span>
+          </div>
+          <div className="mt-2">
+            <span className="text-3xl font-bold text-foreground">{supervisorCount}</span>
+            <span className="ml-2 text-sm text-muted-foreground">명</span>
+          </div>
+          <p className="mt-1 text-xs text-muted-foreground">순찰 중</p>
+          <Button
+            size="sm"
+            variant="outline"
+            className="mt-3 w-full"
+            onClick={() => setSupervisorDialogOpen(true)}
+          >
+            감독 추가
+          </Button>
         </div>
 
         {/* 설비 가동률 카드 */}
@@ -132,6 +198,26 @@ export default function DashboardPage() {
           <FactoryViewer debug={debugMode} />
         </div>
       </div>
+
+      {/* 작업자 추가 다이얼로그 */}
+      <WorkerManagementDialog
+        open={workerDialogOpen}
+        onClose={() => setWorkerDialogOpen(false)}
+        onAddWorker={handleAddWorker}
+        onAddSupervisor={handleAddSupervisor}
+        conveyorBelts={getConveyorBelts()}
+        type="worker"
+      />
+
+      {/* 감독 추가 다이얼로그 */}
+      <WorkerManagementDialog
+        open={supervisorDialogOpen}
+        onClose={() => setSupervisorDialogOpen(false)}
+        onAddWorker={handleAddWorker}
+        onAddSupervisor={handleAddSupervisor}
+        conveyorBelts={getConveyorBelts()}
+        type="supervisor"
+      />
 
       {/* 최근 이벤트 */}
       <div className="rounded-lg border border-border bg-card">
